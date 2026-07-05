@@ -1,82 +1,112 @@
 # MicStreamer
 
-MicStreamer is a small macOS menu-bar app that sends system audio and your
-microphone into a virtual microphone.
+MicStreamer is a macOS menu-bar app that sends app audio and your real
+microphone into one virtual microphone.
 
-## Stack
+Use it when you want people in Discord, Zoom, a game, or another call app to
+hear music, YouTube, or any app audio, while you still hear the call normally.
 
-- Swift + AppKit for a native menu-bar app.
-- CoreAudio process taps for system-audio capture on macOS 14.2+.
-- AVFoundation for sending the selected microphone into BlackHole.
-- BlackHole 2ch as the virtual microphone.
+## What it does
 
-This avoids changing the macOS default output. The app captures audio, sends the
-captured stream to BlackHole, and your call app uses BlackHole as its input.
+- Captures system audio with CoreAudio process taps.
+- Sends captured audio to **BlackHole 2ch**.
+- Optionally mixes your real microphone into the same BlackHole input.
+- Avoids changing your Mac default output.
 
-Sources:
-
-- BlackHole README: <https://github.com/ExistentialAudio/BlackHole>
-- Apple Audio Server Driver sample: <https://developer.apple.com/documentation/coreaudio/creating-an-audio-server-driver-plug-in>
-- Apple Core Audio taps sample: <https://developer.apple.com/documentation/coreaudio/capturing-system-audio-with-core-audio-taps>
+Your call app uses **BlackHole 2ch** as its microphone. Your call app output
+must stay on your real headphones or speakers.
 
 ## Requirements
 
 - macOS 14.2 or newer.
-- BlackHole 2ch installed.
+- Xcode Command Line Tools.
+- Homebrew.
+- BlackHole 2ch.
 
-## One-time setup
+Install missing tools:
 
-1. Install BlackHole 2ch:
+```sh
+xcode-select --install
+brew install blackhole-2ch
+```
 
-   ```sh
-   brew install blackhole-2ch
-   ```
+Restart audio apps after installing BlackHole. Restart the Mac if BlackHole asks
+for it.
 
-2. Restart audio apps, or restart the Mac if BlackHole asks for it.
-3. In Discord, Zoom, your game, or your call app, set:
-   - Input: **BlackHole 2ch**.
-   - Output: your real headphones or speakers. Do not use BlackHole here.
-4. Allow MicStreamer when macOS asks for system-audio capture permission.
-5. If the call app cannot use the mic, allow it in
-   **System Settings → Privacy & Security → Microphone**.
+## Install from GitHub
+
+Run these commands:
+
+```sh
+git clone https://github.com/gitsoufiane/micStreamer.git
+cd micStreamer
+./scripts/build-app.sh
+mkdir -p ~/Applications
+ditto .build/release/MicStreamer.app ~/Applications/MicStreamer.app
+open ~/Applications/MicStreamer.app
+```
+
+After this, start the app from `~/Applications/MicStreamer.app`.
+
+## Setup in your call app
+
+In Discord, Zoom, your game, or your call app:
+
+- Input: **BlackHole 2ch**.
+- Output: your real headphones or speakers.
+
+Do not set the call app output to BlackHole. If you do, you may stop hearing the
+call or create echo.
 
 ## Use
 
-1. Build and open the app:
-
-   ```sh
-   ./scripts/build-app.sh
-   open .build/release/MicStreamer.app
-   ```
-
+1. Open MicStreamer.
 2. Click the menu-bar mic icon.
 3. Choose **Capture Source**:
    - **All Apps Except Calls** is the default.
-   - Choose a music/browser app for the safest call test.
-4. Optional: choose **Microphone** and pick your real microphone.
+   - Choose a music or browser app for the safest test.
+4. Choose **Microphone** if you want a specific real microphone.
 5. Keep **Include Microphone** enabled if people should hear your voice.
 6. Click **Start Routing**.
 7. Click **Stop Routing** when done.
 
-## Self-test
+The first time you start routing, macOS may ask for system-audio capture and
+microphone permission. Allow both.
 
-Use **Run BlackHole Self-Test** from the menu. It sends a test tone into
-BlackHole and checks that BlackHole input can hear it.
+## Quick test
 
-## Microphone mix
+1. Open MicStreamer.
+2. Click **Run BlackHole Self-Test**.
+3. Expect: `BlackHole self-test passed. Test tone was detected.`
 
-When **Include Microphone** is on, MicStreamer sends your selected microphone to
-BlackHole too. It is enabled by default. The call app hears both the captured
-system audio and your voice.
+For a real audio test:
 
-The first time you enable it, macOS asks for microphone permission. If you deny
-it, allow MicStreamer in **System Settings → Privacy & Security → Microphone**.
+1. Open QuickTime Player.
+2. Choose **File → New Audio Recording**.
+3. In the record dropdown, choose **BlackHole 2ch** as the microphone.
+4. Play music or YouTube.
+5. In MicStreamer, choose that app under **Capture Source**.
+6. Click **Start Routing**.
+7. Record 10 seconds while you speak.
+8. Play the recording back.
+
+Expected result: the recording contains the app audio and your voice.
+
+## Troubleshooting
+
+- If BlackHole is missing, run `brew install blackhole-2ch`, then restart audio
+  apps.
+- If the app has no permission, open **System Settings → Privacy & Security**
+  and allow MicStreamer for audio and microphone access.
+- If a browser call echoes, do not use the same browser for the call and YouTube.
+  Use a separate app, or choose a specific non-call app as **Capture Source**.
+- If people cannot hear anything, confirm the call app input is **BlackHole 2ch**.
 
 ## Limits
 
-- Browser calls and browser music share one app process. If you use Google Meet
-  and YouTube in the same browser, MicStreamer cannot separate those tabs yet.
+- Browser calls and browser music share one process. MicStreamer cannot separate
+  tabs yet.
 - Games with built-in voice chat may need **Capture Source** set to the music app
-  instead of **All Apps Except Calls** to avoid echo.
-- This version has no volume slider. Use source-app volume and system input
+  instead of **All Apps Except Calls**.
+- This version has no volume slider. Use the source app volume and macOS input
   volume.
