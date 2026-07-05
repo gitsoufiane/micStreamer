@@ -15,12 +15,6 @@ enum CaptureSource: Equatable {
     }
 }
 
-struct SystemAudioTapStreamerError: LocalizedError {
-    let message: String
-
-    var errorDescription: String? { message }
-}
-
 @available(macOS 14.2, *)
 final class SystemAudioTapStreamer {
     static let callBundleIDs: Set<String> = [
@@ -113,7 +107,7 @@ final class SystemAudioTapStreamer {
                 .filter { $0.bundleID == bundleID }
                 .map(\.id)
             guard !processIDs.isEmpty else {
-                throw SystemAudioTapStreamerError(message: "The selected capture app is not currently playing audio.")
+                throw MessageError("The selected capture app is not currently playing audio.")
             }
             return CATapDescription(stereoMixdownOfProcesses: processIDs)
         }
@@ -171,7 +165,7 @@ final class SystemAudioTapStreamer {
         )
 
         guard let newIOProcID else {
-            throw SystemAudioTapStreamerError(message: "CoreAudio did not create a system tap loopback.")
+            throw MessageError("CoreAudio did not create a system tap loopback.")
         }
 
         do {

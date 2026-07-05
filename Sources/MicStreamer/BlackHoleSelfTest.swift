@@ -1,13 +1,6 @@
 import AVFoundation
-import AudioToolbox
 import CoreAudio
 import Foundation
-
-struct BlackHoleSelfTestError: LocalizedError {
-    let message: String
-
-    var errorDescription: String? { message }
-}
 
 final class BlackHoleSelfTest {
     func run() async throws -> String {
@@ -16,8 +9,16 @@ final class BlackHoleSelfTest {
         let outputEngine = AVAudioEngine()
         let meter = PeakMeter()
 
-        try setDevice(blackHole.id, on: inputEngine.inputNode.audioUnit, action: "set BlackHole test input")
-        try setDevice(blackHole.id, on: outputEngine.outputNode.audioUnit, action: "set BlackHole test output")
+        try AudioSystem.setCurrentDevice(
+            blackHole.id,
+            on: inputEngine.inputNode.audioUnit,
+            action: "set BlackHole test input"
+        )
+        try AudioSystem.setCurrentDevice(
+            blackHole.id,
+            on: outputEngine.outputNode.audioUnit,
+            action: "set BlackHole test output"
+        )
 
         let input = inputEngine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
@@ -46,28 +47,11 @@ final class BlackHoleSelfTest {
         outputEngine.stop()
 
         guard meter.peak > 0.01 else {
-            throw BlackHoleSelfTestError(message: "BlackHole self-test did not detect the test tone.")
+            throw MessageError("BlackHole self-test did not detect the test tone.")
         }
         return "BlackHole self-test passed. Test tone was detected."
     }
 
-    private func setDevice(_ id: AudioDeviceID, on unit: AudioUnit?, action: String) throws {
-        guard let unit else {
-            throw BlackHoleSelfTestError(message: "CoreAudio failed to \(action): missing audio unit.")
-        }
-        var deviceID = id
-        let status = AudioUnitSetProperty(
-            unit,
-            kAudioOutputUnitProperty_CurrentDevice,
-            kAudioUnitScope_Global,
-            0,
-            &deviceID,
-            UInt32(MemoryLayout<AudioDeviceID>.stride)
-        )
-        guard status == noErr else {
-            throw BlackHoleSelfTestError(message: "CoreAudio failed to \(action). OSStatus: \(status).")
-        }
-    }
 }
 
 private final class PeakMeter: @unchecked Sendable {

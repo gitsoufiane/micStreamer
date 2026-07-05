@@ -1,4 +1,5 @@
 import AppKit
+import AudioToolbox
 import CoreAudio
 import Foundation
 
@@ -8,12 +9,10 @@ struct AudioDevice: Equatable {
     let name: String
     let hasInput: Bool
     let hasOutput: Bool
-    let transportType: UInt32
 }
 
 struct AudioProcess: Equatable {
     let id: AudioObjectID
-    let pid: pid_t
     let bundleID: String
     let name: String
 }
@@ -32,6 +31,16 @@ enum AudioSystemError: LocalizedError {
     }
 }
 
+struct MessageError: LocalizedError {
+    let message: String
+
+    init(_ message: String) {
+        self.message = message
+    }
+
+    var errorDescription: String? { message }
+}
+
 enum AudioSystem {
     static let systemTapAggregateName = "MicStreamer System Tap"
     static let systemTapAggregateUID = "app.micstreamer.system-tap"
@@ -48,9 +57,7 @@ enum AudioSystem {
                 uid: uid,
                 name: name,
                 hasInput: hasStreams(id, scope: kAudioDevicePropertyScopeInput),
-                hasOutput: hasStreams(id, scope: kAudioDevicePropertyScopeOutput),
-                transportType: (try? uint32Property(id, kAudioDevicePropertyTransportType))
-                    ?? kAudioDeviceTransportTypeUnknown
+                hasOutput: hasStreams(id, scope: kAudioDevicePropertyScopeOutput)
             )
         }
     }
@@ -99,7 +106,7 @@ enum AudioSystem {
                 return nil
             }
             let appName = NSRunningApplication(processIdentifier: pid)?.localizedName
-            return AudioProcess(id: id, pid: pid, bundleID: bundleID, name: appName ?? bundleID)
+            return AudioProcess(id: id, bundleID: bundleID, name: appName ?? bundleID)
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
@@ -131,16 +138,28 @@ enum AudioSystem {
         try stringProperty(tapID, kAudioTapPropertyUID)
     }
 
+    static func setCurrentDevice(_ id: AudioDeviceID, on unit: AudioUnit?, action: String) throws {
+        guard let unit else {
+            throw MessageError("CoreAudio failed to \(action): missing audio unit.")
+        }
+
+        var deviceID = id
+        let status = AudioUnitSetProperty(
+            unit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &deviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.stride)
+        )
+        guard status == noErr else {
+            throw MessageError("CoreAudio failed to \(action). OSStatus: \(status).")
+        }
+    }
+
     static func isBlackHole(_ device: AudioDevice) -> Bool {
         device.name.localizedCaseInsensitiveContains("blackhole") ||
             device.uid.localizedCaseInsensitiveContains("blackhole")
-    }
-
-    static func isRealOutput(_ device: AudioDevice) -> Bool {
-        device.hasOutput &&
-            !isBlackHole(device) &&
-            !isSystemTapAggregate(device) &&
-            device.transportType != kAudioDeviceTransportTypeAggregate
     }
 
     private static func isSystemTapAggregate(_ device: AudioDevice) -> Bool {
@@ -184,22 +203,6 @@ enum AudioSystem {
         }
         try check(status, "read object string")
         return value as String
-    }
-
-    private static func uint32Property(
-        _ id: AudioObjectID,
-        _ selector: AudioObjectPropertySelector
-    ) throws -> UInt32 {
-        var address = AudioObjectPropertyAddress(
-            mSelector: selector,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var value: UInt32 = 0
-        var size = UInt32(MemoryLayout<UInt32>.stride)
-        let status = AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value)
-        try check(status, "read object number")
-        return value
     }
 
     private static func pidProperty(

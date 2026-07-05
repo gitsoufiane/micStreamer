@@ -29,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         statusItem.button?.image = image
         statusItem.button?.image?.isTemplate = true
-        recoverStaleTapAggregate()
+        try? AudioSystem.destroySystemTapAggregateIfExists()
         refreshMenu()
     }
 
@@ -95,10 +95,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func refreshDevices() {
-        refreshMenu()
-    }
-
     @objc private func runSelfTest() {
         Task { @MainActor in
             do {
@@ -145,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshMenu()
     }
 
-    private func refreshMenu() {
+    @objc private func refreshMenu() {
         let menu = NSMenu()
         syncRoutingState()
         addRouteItems(to: menu)
@@ -251,7 +247,7 @@ private extension AppDelegate {
 
         let refresh = NSMenuItem(
             title: "Refresh Devices",
-            action: #selector(refreshDevices),
+            action: #selector(refreshMenu),
             keyEquivalent: ""
         )
         refresh.target = self
@@ -288,15 +284,15 @@ private extension AppDelegate {
 
     func addVolumeMenu(title: String, selected: Double, action: Selector, to menu: NSMenu) {
         let volumeMenu = NSMenu()
-        for volume in volumeOptions() {
-            let item = NSMenuItem(title: volumeTitle(volume), action: action, keyEquivalent: "")
+        for volume in [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0] {
+            let item = NSMenuItem(title: AudioVolume.title(volume), action: action, keyEquivalent: "")
             item.target = self
             item.representedObject = NSNumber(value: volume)
             item.state = abs(volume - selected) < 0.001 ? .on : .off
             volumeMenu.addItem(item)
         }
 
-        let item = NSMenuItem(title: "\(title): \(volumeTitle(selected))", action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: "\(title): \(AudioVolume.title(selected))", action: nil, keyEquivalent: "")
         menu.setSubmenu(volumeMenu, for: item)
         menu.addItem(item)
     }
@@ -327,14 +323,6 @@ private extension AppDelegate {
         AudioVolume.clamped(UserDefaults.standard.double(forKey: key))
     }
 
-    func volumeOptions() -> [Double] {
-        [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
-    }
-
-    func volumeTitle(_ volume: Double) -> String {
-        AudioVolume.title(volume)
-    }
-
     func restartIfRouting() {
         guard isRouting else {
             refreshMenu()
@@ -352,9 +340,6 @@ private extension AppDelegate {
         isRouting = false
     }
 
-    func recoverStaleTapAggregate() {
-        try? AudioSystem.destroySystemTapAggregateIfExists()
-    }
 }
 
 @available(macOS 14.2, *)
@@ -416,7 +401,7 @@ private extension AppDelegate {
         stopMicrophoneMixing()
         UserDefaults.standard.set(false, forKey: microphoneEnabledKey)
         refreshMenu()
-        show(MicrophoneMixerError(message: message))
+        show(MessageError(message))
     }
 
     func selectedMicrophoneDevice() throws -> AudioDevice {
