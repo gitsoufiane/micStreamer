@@ -1,0 +1,4 @@
+.build/
+.swiftpm/
+.pi-subagents/
+.DS_Store
