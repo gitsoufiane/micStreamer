@@ -12,14 +12,21 @@ struct MicrophoneMixerError: LocalizedError {
 final class MicrophoneMixer {
     private let engine = AVAudioEngine()
 
+    var volume: Float = 1 {
+        didSet {
+            engine.mainMixerNode.outputVolume = volume
+        }
+    }
+
     var isRunning: Bool {
         engine.isRunning
     }
 
-    func start(inputDeviceID: AudioDeviceID, outputDeviceID: AudioDeviceID) throws {
+    func start(inputDeviceID: AudioDeviceID, outputDeviceID: AudioDeviceID, volume: Float) throws {
         stop()
         try setDevice(inputDeviceID, on: engine.inputNode.audioUnit, action: "set microphone input")
         try setDevice(outputDeviceID, on: engine.outputNode.audioUnit, action: "set BlackHole output")
+        self.volume = AudioVolume.clamped(volume)
 
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)

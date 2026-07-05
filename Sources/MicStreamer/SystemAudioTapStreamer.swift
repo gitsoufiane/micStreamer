@@ -36,20 +36,25 @@ final class SystemAudioTapStreamer {
     ]
 
     private let queue = DispatchQueue(label: "app.micstreamer.system-tap", qos: .userInitiated)
+    private let volumeLock = NSLock()
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var ioProcID: AudioDeviceIOProcID?
+    private var volume: Float = 1
 
     var isRunning: Bool {
         ioProcID != nil
     }
 
-    func start(outputDeviceID: AudioDeviceID, source: CaptureSource) throws {
+    func start(
+        outputDeviceID: AudioDeviceID,
+        source: CaptureSource,
+        volume: Float
+    ) throws {
         stop()
 
         let outputDevice = try AudioSystem.device(id: outputDeviceID)
-        let excludedIDs = try excludedProcessIDs()
-        let description = try tapDescription(for: source, excludedIDs: excludedIDs)
+        let description = try tapDescription(for: source, excludedIDs: excludedProcessIDs())
         description.name = "MicStreamer System Audio"
         description.isPrivate = true
         description.muteBehavior = .unmuted
@@ -59,6 +64,7 @@ final class SystemAudioTapStreamer {
         tapID = newTapID
 
         do {
+            setVolume(volume)
             let tapUID = try AudioSystem.tapUID(newTapID)
             aggregateID = try createAggregate(outputDevice: outputDevice, tapUID: tapUID)
             try startLoopback(aggregateID: aggregateID)
@@ -66,6 +72,18 @@ final class SystemAudioTapStreamer {
             stop()
             throw error
         }
+    }
+
+    func setVolume(_ volume: Float) {
+        volumeLock.lock()
+        self.volume = AudioVolume.clamped(volume)
+        volumeLock.unlock()
+    }
+
+    private func currentVolume() -> Float {
+        volumeLock.lock()
+        defer { volumeLock.unlock() }
+        return volume
     }
 
     func stop() {
@@ -135,9 +153,19 @@ final class SystemAudioTapStreamer {
 
     private func startLoopback(aggregateID: AudioObjectID) throws {
         var newIOProcID: AudioDeviceIOProcID?
+        let sampleFormat = (try? Self.sampleFormat(deviceID: aggregateID)) ?? .passthrough
         try AudioSystem.check(
-            AudioDeviceCreateIOProcIDWithBlock(&newIOProcID, aggregateID, queue) { _, inputData, _, outputData, _ in
-                Self.copy(inputData: inputData, outputData: outputData)
+            AudioDeviceCreateIOProcIDWithBlock(
+                &newIOProcID,
+                aggregateID,
+                queue
+            ) { [weak self] _, inputData, _, outputData, _ in
+                Self.copy(
+                    inputData: inputData,
+                    outputData: outputData,
+                    volume: self?.currentVolume() ?? 1,
+                    sampleFormat: sampleFormat
+                )
             },
             "create system tap loopback"
         )
@@ -155,9 +183,42 @@ final class SystemAudioTapStreamer {
         }
     }
 
+    private enum SampleFormat {
+        case float32
+        case int16
+        case int32
+        case passthrough
+    }
+
+    private static func sampleFormat(deviceID: AudioDeviceID) throws -> SampleFormat {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamFormat,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var format = AudioStreamBasicDescription()
+        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.stride)
+        try AudioSystem.check(
+            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &format),
+            "read system tap stream format"
+        )
+
+        guard format.mFormatID == kAudioFormatLinearPCM else { return .passthrough }
+        if format.mFormatFlags & kAudioFormatFlagIsFloat != 0, format.mBitsPerChannel == 32 {
+            return .float32
+        }
+        if format.mFormatFlags & kAudioFormatFlagIsSignedInteger != 0 {
+            if format.mBitsPerChannel == 16 { return .int16 }
+            if format.mBitsPerChannel == 32 { return .int32 }
+        }
+        return .passthrough
+    }
+
     private static func copy(
         inputData: UnsafePointer<AudioBufferList>,
-        outputData: UnsafeMutablePointer<AudioBufferList>
+        outputData: UnsafeMutablePointer<AudioBufferList>,
+        volume: Float,
+        sampleFormat: SampleFormat
     ) {
         let inputs = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputData))
         let outputs = UnsafeMutableAudioBufferListPointer(outputData)
@@ -171,7 +232,52 @@ final class SystemAudioTapStreamer {
             let input = inputs[index]
             let output = outputs[index]
             guard let inputData = input.mData, let outputData = output.mData else { continue }
-            memcpy(outputData, inputData, min(Int(input.mDataByteSize), Int(output.mDataByteSize)))
+            let byteCount = min(Int(input.mDataByteSize), Int(output.mDataByteSize))
+            if volume == 1 || sampleFormat == .passthrough {
+                memcpy(outputData, inputData, byteCount)
+            } else {
+                copy(
+                    inputData: inputData,
+                    outputData: outputData,
+                    byteCount: byteCount,
+                    volume: volume,
+                    as: sampleFormat
+                )
+            }
+        }
+    }
+
+    private static func copy(
+        inputData: UnsafeMutableRawPointer,
+        outputData: UnsafeMutableRawPointer,
+        byteCount: Int,
+        volume: Float,
+        as sampleFormat: SampleFormat
+    ) {
+        switch sampleFormat {
+        case .float32:
+            let count = byteCount / MemoryLayout<Float>.stride
+            let input = inputData.bindMemory(to: Float.self, capacity: count)
+            let output = outputData.bindMemory(to: Float.self, capacity: count)
+            for index in 0..<count {
+                output[index] = input[index] * volume
+            }
+        case .int16:
+            let count = byteCount / MemoryLayout<Int16>.stride
+            let input = inputData.bindMemory(to: Int16.self, capacity: count)
+            let output = outputData.bindMemory(to: Int16.self, capacity: count)
+            for index in 0..<count {
+                output[index] = AudioVolume.scale(input[index], by: volume)
+            }
+        case .int32:
+            let count = byteCount / MemoryLayout<Int32>.stride
+            let input = inputData.bindMemory(to: Int32.self, capacity: count)
+            let output = outputData.bindMemory(to: Int32.self, capacity: count)
+            for index in 0..<count {
+                output[index] = AudioVolume.scale(input[index], by: volume)
+            }
+        case .passthrough:
+            memcpy(outputData, inputData, byteCount)
         }
     }
 }

@@ -33,20 +33,30 @@ brew install blackhole-2ch
 Restart audio apps after installing BlackHole. Restart the Mac if BlackHole asks
 for it.
 
-## Install from GitHub
+## Install from DMG
+
+If a GitHub Release has `MicStreamer.dmg`, download it, open it, then drag
+`MicStreamer.app` to **Applications**.
+
+If macOS says the app is from an unidentified developer, right-click the app and
+choose **Open**. MicStreamer is ad-hoc signed until Developer ID notarization is
+added.
+
+Homebrew install is planned after there is a versioned DMG release URL and
+checksum.
+
+## Build a DMG from source
 
 Run these commands:
 
 ```sh
 git clone https://github.com/gitsoufiane/micStreamer.git
 cd micStreamer
-./scripts/build-app.sh
-mkdir -p ~/Applications
-ditto .build/release/MicStreamer.app ~/Applications/MicStreamer.app
-open ~/Applications/MicStreamer.app
+./scripts/package-dmg.sh
+open .build/release/MicStreamer.dmg
 ```
 
-After this, start the app from `~/Applications/MicStreamer.app`.
+Then drag `MicStreamer.app` to **Applications**.
 
 ## Setup in your call app
 
@@ -65,10 +75,11 @@ call or create echo.
 3. Choose **Capture Source**:
    - **All Apps Except Calls** is the default.
    - Choose a music or browser app for the safest test.
-4. Choose **Microphone** if you want a specific real microphone.
-5. Keep **Include Microphone** enabled if people should hear your voice.
-6. Click **Start Routing**.
-7. Click **Stop Routing** when done.
+4. Set **Music Volume** and **Mic Volume**.
+5. Choose **Microphone** if you want a specific real microphone.
+6. Keep **Include Microphone** enabled if people should hear your voice.
+7. Click **Start Routing**.
+8. Click **Stop Routing** when done.
 
 The first time you start routing, macOS may ask for system-audio capture and
 microphone permission. Allow both.
@@ -99,8 +110,10 @@ Expected result: the recording contains the app audio and your voice.
 - If the app has no permission, open **System Settings → Privacy & Security**
   and allow MicStreamer for audio and microphone access.
 - If a browser call echoes, do not use the same browser for the call and YouTube.
-  Use a separate app, or choose a specific non-call app as **Capture Source**.
+  Choose the music browser under **Capture Source**.
 - If people cannot hear anything, confirm the call app input is **BlackHole 2ch**.
+- If music or your voice is too loud or quiet, adjust **Music Volume** or
+  **Mic Volume** in MicStreamer.
 
 ## Limits
 
@@ -108,5 +121,5 @@ Expected result: the recording contains the app audio and your voice.
   tabs yet.
 - Games with built-in voice chat may need **Capture Source** set to the music app
   instead of **All Apps Except Calls**.
-- This version has no volume slider. Use the source app volume and macOS input
-  volume.
+- **Music Volume** and **Mic Volume** use preset levels. Use the source app or
+  call app controls if you need finer volume changes.

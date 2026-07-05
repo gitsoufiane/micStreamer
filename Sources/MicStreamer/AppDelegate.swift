@@ -7,8 +7,10 @@ import CoreAudio
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let captureBundleIDKey = "captureBundleID"
     private let captureNameKey = "captureName"
+    private let captureVolumeKey = "captureVolume"
     private let microphoneEnabledKey = "microphoneMixEnabled"
     private let microphoneInputKey = "microphoneInputDeviceName"
+    private let microphoneVolumeKey = "microphoneVolume"
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let microphoneMixer = MicrophoneMixer()
     private var systemTapStreamer: SystemAudioTapStreamer?
@@ -16,7 +18,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isMicrophoneMixing = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        UserDefaults.standard.register(defaults: [microphoneEnabledKey: true])
+        UserDefaults.standard.register(defaults: [
+            captureVolumeKey: 1.0,
+            microphoneEnabledKey: true,
+            microphoneVolumeKey: 1.0
+        ])
         let image = NSImage(
             systemSymbolName: "mic.and.signal.meter",
             accessibilityDescription: "MicStreamer"
@@ -64,6 +70,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         restartIfRouting()
     }
 
+    @objc private func selectCaptureVolume(_ sender: NSMenuItem) {
+        guard let volume = sender.representedObject as? NSNumber else { return }
+        UserDefaults.standard.set(volume.doubleValue, forKey: captureVolumeKey)
+        systemTapStreamer?.setVolume(Float(captureVolume()))
+        refreshMenu()
+    }
+
+    @objc private func selectMicrophoneVolume(_ sender: NSMenuItem) {
+        guard let volume = sender.representedObject as? NSNumber else { return }
+        UserDefaults.standard.set(volume.doubleValue, forKey: microphoneVolumeKey)
+        microphoneMixer.volume = Float(microphoneVolume())
+        refreshMenu()
+    }
+
     @objc private func selectMicrophone(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
         UserDefaults.standard.set(name, forKey: microphoneInputKey)
@@ -102,7 +122,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let blackHole = try AudioSystem.blackHoleOutputDevice()
             let streamer = SystemAudioTapStreamer()
-            try streamer.start(outputDeviceID: blackHole.id, source: selectedCaptureSource())
+            try streamer.start(
+                outputDeviceID: blackHole.id,
+                source: selectedCaptureSource(),
+                volume: Float(captureVolume())
+            )
             systemTapStreamer = streamer
             isRouting = true
 
@@ -126,6 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         syncRoutingState()
         addRouteItems(to: menu)
         addCaptureItems(to: menu)
+        addVolumeItems(to: menu)
         addMicrophoneItems(to: menu)
         addUtilityItems(to: menu)
 
@@ -246,6 +271,36 @@ private extension AppDelegate {
         return .allExceptCalls
     }
 
+    func addVolumeItems(to menu: NSMenu) {
+        addVolumeMenu(
+            title: "Music Volume",
+            selected: captureVolume(),
+            action: #selector(selectCaptureVolume(_:)),
+            to: menu
+        )
+        addVolumeMenu(
+            title: "Mic Volume",
+            selected: microphoneVolume(),
+            action: #selector(selectMicrophoneVolume(_:)),
+            to: menu
+        )
+    }
+
+    func addVolumeMenu(title: String, selected: Double, action: Selector, to menu: NSMenu) {
+        let volumeMenu = NSMenu()
+        for volume in volumeOptions() {
+            let item = NSMenuItem(title: volumeTitle(volume), action: action, keyEquivalent: "")
+            item.target = self
+            item.representedObject = NSNumber(value: volume)
+            item.state = abs(volume - selected) < 0.001 ? .on : .off
+            volumeMenu.addItem(item)
+        }
+
+        let item = NSMenuItem(title: "\(title): \(volumeTitle(selected))", action: nil, keyEquivalent: "")
+        menu.setSubmenu(volumeMenu, for: item)
+        menu.addItem(item)
+    }
+
     func uniqueAudioProcesses() -> [AudioProcess] {
         let ownBundleID = Bundle.main.bundleIdentifier
         var seen = Set<String>()
@@ -258,6 +313,26 @@ private extension AppDelegate {
             seen.insert(process.bundleID)
             return true
         }
+    }
+
+    func captureVolume() -> Double {
+        volume(forKey: captureVolumeKey)
+    }
+
+    func microphoneVolume() -> Double {
+        volume(forKey: microphoneVolumeKey)
+    }
+
+    func volume(forKey key: String) -> Double {
+        AudioVolume.clamped(UserDefaults.standard.double(forKey: key))
+    }
+
+    func volumeOptions() -> [Double] {
+        [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+    }
+
+    func volumeTitle(_ volume: Double) -> String {
+        AudioVolume.title(volume)
     }
 
     func restartIfRouting() {
@@ -317,7 +392,11 @@ private extension AppDelegate {
         do {
             let microphone = try selectedMicrophoneDevice()
             let blackHole = try AudioSystem.blackHoleOutputDevice()
-            try microphoneMixer.start(inputDeviceID: microphone.id, outputDeviceID: blackHole.id)
+            try microphoneMixer.start(
+                inputDeviceID: microphone.id,
+                outputDeviceID: blackHole.id,
+                volume: Float(microphoneVolume())
+            )
             isMicrophoneMixing = true
             refreshMenu()
         } catch {

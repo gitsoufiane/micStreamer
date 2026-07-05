@@ -16,6 +16,10 @@ let package = Package(
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("CoreAudio")
             ]
+        ),
+        .testTarget(
+            name: "MicStreamerTests",
+            dependencies: ["MicStreamer"]
         )
     ]
 )
